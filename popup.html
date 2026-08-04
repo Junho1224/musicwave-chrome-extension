@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Music Wave Alert</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="mark" aria-hidden="true">MW</span>
+        <div>
+          <h1>Music Wave Alert</h1>
+          <p id="page-status">현재 탭을 확인하는 중…</p>
+        </div>
+      </header>
+
+      <section class="panel" aria-labelledby="desktop-title">
+        <div class="panel-heading">
+          <div>
+            <span class="kicker">이 컴퓨터</span>
+            <h2 id="desktop-title">PC 알림</h2>
+          </div>
+          <span class="status-dot" aria-hidden="true"></span>
+        </div>
+        <label class="setting-row">
+          <span>데스크톱 알림</span>
+          <input id="alerts-enabled" type="checkbox" />
+        </label>
+        <label class="setting-row">
+          <span>페이지 경고음</span>
+          <input id="sound-enabled" type="checkbox" />
+        </label>
+        <label class="setting-row">
+          <span>탭 제목 깜빡임</span>
+          <input id="title-flash-enabled" type="checkbox" />
+        </label>
+      </section>
+
+      <section class="panel mobile-panel" aria-labelledby="mobile-title">
+        <div class="panel-heading">
+          <div>
+            <span class="kicker">선택 기능</span>
+            <h2 id="mobile-title">휴대폰 알림</h2>
+          </div>
+          <input id="ntfy-enabled" type="checkbox" aria-label="휴대폰 알림 켜기" />
+        </div>
+        <p class="panel-description">
+          사용자별 비밀 채널로 ntfy 앱 또는 웹 푸시를 받을 수 있습니다.
+        </p>
+        <div class="mobile-state">
+          <span id="mobile-status">연결되지 않음</span>
+          <code id="mobile-topic">채널 없음</code>
+        </div>
+        <div class="button-grid">
+          <button id="connect-mobile" class="primary-button" type="button">
+            휴대폰 연결 만들기
+          </button>
+          <button id="test-mobile" class="secondary-button" type="button">
+            휴대폰 테스트
+          </button>
+        </div>
+      </section>
+
+      <section class="last-alert" aria-labelledby="last-alert-title">
+        <h2 id="last-alert-title">마지막 감지</h2>
+        <p id="last-alert">아직 감지된 경고가 없습니다.</p>
+      </section>
+
+      <button id="test-alert" class="desktop-test" type="button">PC 테스트 알림 보내기</button>
+      <p class="privacy">채팅과 계정 정보는 전송하지 않으며 경고 종류와 시각만 사용합니다.</p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

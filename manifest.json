@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Music Wave Alert",
+  "version": "1.1.1",
+  "description": "MUSIC WAVE 경고를 감지해 PC와 선택한 휴대폰 알림 채널로 알려줍니다.",
+  "permissions": [
+    "activeTab",
+    "notifications",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://musicwave.melon.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://ntfy.sh/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Music Wave Alert",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://musicwave.melon.com/*"
+      ],
+      "js": [
+        "detector-core.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
