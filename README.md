@@ -4,7 +4,7 @@
 
 ## 다운로드
 
-**[Music Wave Alert v1.1.1 다운로드](./release/music-wave-alert-extension-v1.1.1.zip?download=1)**
+**[Music Wave Alert v1.1.1 다운로드](https://raw.githubusercontent.com/Junho1224/musicwave-chrome-extension/main/release/music-wave-alert-extension-v1.1.1.zip)**
 
 ZIP 파일을 받은 뒤 압축을 풀고 아래 순서대로 설치하세요.
 
