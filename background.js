@@ -248,7 +248,7 @@ async function checkMusicWaveTabPresence({ notify = true } = {}) {
     }
   });
   if (result.shouldNotify) {
-    await createAlert("tabClosed", null, { ignoreCooldown: true });
+    await createAlert("tabClosed", null);
   }
   return result;
 }
@@ -307,7 +307,7 @@ async function handleMusicWaveTabRemoved(tabId, removeInfo) {
     removedTabId: tabId,
     remainingTabIds,
     notificationsEnabled: settings.tabCloseAlertEnabled,
-    hasBrowserWindow: windows.length > 0
+    hasBrowserWindow: removeInfo?.isWindowClosing ? windows.length > 0 : true
   });
 
   await chrome.storage.local.set({
@@ -320,8 +320,41 @@ async function handleMusicWaveTabRemoved(tabId, removeInfo) {
     }
   });
   if (result.shouldNotify) {
-    await createAlert("tabClosed", null, { ignoreCooldown: true });
+    await createAlert("tabClosed", null);
   }
+}
+
+async function handleMusicWavePageLeaving(tabId) {
+  if (!Number.isInteger(tabId)) return { notified: false, reason: "missing-tab" };
+  await registerMusicWaveTab(tabId);
+  await new Promise((resolve) => setTimeout(resolve, TAB_CHECK_DELAY_MS));
+
+  const [tabs, settings, windows] = await Promise.all([
+    chrome.tabs.query({ url: MUSIC_WAVE_MATCH }),
+    chrome.storage.sync.get(DEFAULT_SETTINGS),
+    chrome.windows.getAll({ windowTypes: ["normal"] })
+  ]);
+  const currentTabIds = tabs.map((tab) => tab.id).filter(Number.isInteger);
+  const result = MusicWaveTabMonitor.evaluatePageLeave({
+    leavingTabId: tabId,
+    currentTabIds,
+    notificationsEnabled: settings.tabCloseAlertEnabled,
+    hasBrowserWindow: windows.length > 0
+  });
+
+  await chrome.storage.local.set({
+    [TAB_PRESENCE_KEY]: currentTabIds.length > 0,
+    [TRACKED_TAB_IDS_KEY]: currentTabIds,
+    lastTabMonitor: {
+      event: "page-leaving",
+      trackedCount: currentTabIds.length,
+      timestamp: Date.now()
+    }
+  });
+  if (result.shouldNotify) {
+    return createAlert("tabClosed", null);
+  }
+  return { notified: false, reason: "tab-still-open" };
 }
 
 function scheduleTabPresenceCheck() {
@@ -355,9 +388,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === "MUSIC_WAVE_TAB_LEAVING") {
-    scheduleTabPresenceCheck();
-    sendResponse({ scheduled: true });
-    return undefined;
+    handleMusicWavePageLeaving(sender.tab?.id)
+      .then(sendResponse)
+      .catch((error) => sendResponse({ notified: false, reason: error.message }));
+    return true;
   }
 
   if (message?.type === "MUSIC_WAVE_ALERT") {

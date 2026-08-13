@@ -32,7 +32,9 @@ test("monitors the last MUSIC WAVE tab and exposes a close-alert setting", () =>
   assert.match(background, /TRACKED_TAB_IDS_KEY/);
   assert.match(background, /createAlert\("tabClosed"/);
   assert.match(background, /handleMusicWaveTabRemoved/);
+  assert.match(background, /handleMusicWavePageLeaving/);
   assert.match(content, /MUSIC_WAVE_TAB_PRESENT/);
   assert.match(content, /MUSIC_WAVE_TAB_LEAVING/);
+  assert.match(content, /TAB_HEARTBEAT_MS/);
   assert.match(popup, /tab-close-alert-enabled/);
 });

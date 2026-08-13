@@ -38,7 +38,31 @@
     });
   }
 
-  const api = Object.freeze({ evaluatePresence, evaluateTrackedRemoval });
+  function evaluatePageLeave({
+    leavingTabId,
+    currentTabIds,
+    notificationsEnabled,
+    hasBrowserWindow
+  }) {
+    const current = [...new Set(currentTabIds.filter(Number.isInteger))];
+    const leavingTabStillOpen = current.includes(leavingTabId);
+    return Object.freeze({
+      leavingTabStillOpen,
+      currentTabIds: Object.freeze(current),
+      shouldNotify: Boolean(
+        !leavingTabStillOpen &&
+          current.length === 0 &&
+          notificationsEnabled &&
+          hasBrowserWindow
+      )
+    });
+  }
+
+  const api = Object.freeze({
+    evaluatePresence,
+    evaluateTrackedRemoval,
+    evaluatePageLeave
+  });
   root.MusicWaveTabMonitor = api;
   if (typeof module !== "undefined" && module.exports) {
     module.exports = api;

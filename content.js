@@ -16,6 +16,7 @@
   const FALLBACK_SCAN_MS = 4000;
   const REMOTE_RETRY_MS = 12000;
   const REMOTE_RETRY_LIMIT = 3;
+  const TAB_HEARTBEAT_MS = 15000;
   const KNOWN_ALERT_SELECTOR = "#alertButton.melon-modal.d_modal_confirm";
 
   let settings = { ...DEFAULT_SETTINGS };
@@ -348,6 +349,7 @@
     };
     await reportTabPresent();
     window.addEventListener("pagehide", reportTabLeaving, { capture: true });
+    window.setInterval(reportTabPresent, TAB_HEARTBEAT_MS);
 
     const observer = new MutationObserver(scheduleScan);
     observer.observe(document.documentElement, {

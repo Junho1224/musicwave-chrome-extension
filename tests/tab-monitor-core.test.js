@@ -4,7 +4,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   evaluatePresence,
-  evaluateTrackedRemoval
+  evaluateTrackedRemoval,
+  evaluatePageLeave
 } = require("../tab-monitor-core.js");
 
 test("notifies when the last MUSIC WAVE tab closes", () => {
@@ -78,5 +79,29 @@ test("ignores removal of an unrelated tab", () => {
       hasBrowserWindow: true
     }),
     { wasTracked: false, trackedTabIds: [41], shouldNotify: false }
+  );
+});
+
+test("confirms a direct page-leave signal after the last tab disappears", () => {
+  assert.deepEqual(
+    evaluatePageLeave({
+      leavingTabId: 41,
+      currentTabIds: [],
+      notificationsEnabled: true,
+      hasBrowserWindow: true
+    }),
+    { leavingTabStillOpen: false, currentTabIds: [], shouldNotify: true }
+  );
+});
+
+test("treats page reload as still open", () => {
+  assert.deepEqual(
+    evaluatePageLeave({
+      leavingTabId: 41,
+      currentTabIds: [41],
+      notificationsEnabled: true,
+      hasBrowserWindow: true
+    }),
+    { leavingTabStillOpen: true, currentTabIds: [41], shouldNotify: false }
   );
 });
