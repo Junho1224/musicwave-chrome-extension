@@ -43,7 +43,11 @@ test("monitors the last MUSIC WAVE tab and exposes a close-alert setting", () =>
   assert.match(background, /TAB_WATCH_PERIOD_MINUTES = 0\.5/);
   assert.match(background, /injectWatcherIntoOpenTabs/);
   assert.match(background, /chrome\.scripting/);
+  assert.match(background, /chrome\.tabs\.onActivated\.addListener/);
+  assert.match(background, /MUSIC_WAVE_TAB_MONITOR_STATUS/);
+  assert.match(background, /recordTabMonitorError/);
   assert.match(manifest, /"alarms"/);
   assert.match(manifest, /"scripting"/);
   assert.match(popup, /tab-close-alert-enabled/);
+  assert.match(popup, /tab-monitor-status/);
 });

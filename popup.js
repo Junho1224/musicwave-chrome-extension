@@ -19,6 +19,7 @@ const controls = {
 };
 const ntfyToggle = document.getElementById("ntfy-enabled");
 const pageStatus = document.getElementById("page-status");
+const tabMonitorStatus = document.getElementById("tab-monitor-status");
 const mobileStatus = document.getElementById("mobile-status");
 const mobileTopic = document.getElementById("mobile-topic");
 const lastAlert = document.getElementById("last-alert");
@@ -93,22 +94,43 @@ async function loadPageStatus() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.url?.startsWith("https://musicwave.melon.com/")) {
     pageStatus.textContent = "MUSIC WAVE 탭에서 동작합니다.";
+  } else {
+    await chrome.runtime.sendMessage({
+      type: "MUSIC_WAVE_REGISTER_TAB",
+      tabId: tab.id
+    });
+    try {
+      const response = await chrome.tabs.sendMessage(tab.id, { type: "MUSIC_WAVE_GET_STATUS" });
+      if (response?.activeSignals?.includes("mechanical")) {
+        pageStatus.textContent = "기계 감지 팝업을 감지했습니다.";
+      } else if (response?.activeSignals?.includes("continue")) {
+        pageStatus.textContent = "계속 듣기 팝업을 감지했습니다.";
+      } else {
+        pageStatus.textContent = response?.watching
+          ? "현재 탭을 감시하고 있습니다."
+          : "페이지를 새로고침해 주세요.";
+      }
+    } catch (_error) {
+      pageStatus.textContent = "확장 설치 후 페이지를 새로고침해 주세요.";
+    }
+  }
+
+  const monitor = await chrome.runtime.sendMessage({
+    type: "MUSIC_WAVE_TAB_MONITOR_STATUS"
+  });
+  if (monitor?.error) {
+    tabMonitorStatus.textContent = `탭 감시 오류 · ${monitor.error}`;
     return;
   }
-  try {
-    const response = await chrome.tabs.sendMessage(tab.id, { type: "MUSIC_WAVE_GET_STATUS" });
-    if (response?.activeSignals?.includes("mechanical")) {
-      pageStatus.textContent = "기계 감지 팝업을 감지했습니다.";
-    } else if (response?.activeSignals?.includes("continue")) {
-      pageStatus.textContent = "계속 듣기 팝업을 감지했습니다.";
-    } else {
-      pageStatus.textContent = response?.watching
-        ? "현재 탭을 감시하고 있습니다."
-        : "페이지를 새로고침해 주세요.";
-    }
-  } catch (_error) {
-    pageStatus.textContent = "확장 설치 후 페이지를 새로고침해 주세요.";
+  if (monitor?.lastMonitor?.error) {
+    tabMonitorStatus.textContent = `탭 감시 오류 · ${monitor.lastMonitor.error}`;
+    return;
   }
+  const count = Math.max(monitor?.queriedTabCount || 0, monitor?.trackedTabCount || 0);
+  const alarm = monitor?.alarmActive ? "주기 확인 사용 중" : "주기 확인 중지됨";
+  tabMonitorStatus.textContent = count > 0
+    ? `탭 감시 등록됨 · ${count}개 · ${alarm}`
+    : `탭 감시 미등록 · ${alarm}`;
 }
 
 async function loadLastAlert() {

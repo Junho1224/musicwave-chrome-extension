@@ -93,6 +93,16 @@ h2 { color: #e6ebe7; font-size: 12px; }
   font-size: 12px;
 }
 
+.monitor-status {
+  margin-top: 7px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+  color: #aeb8b0;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
 input[type="checkbox"] {
   width: 18px;
   height: 18px;

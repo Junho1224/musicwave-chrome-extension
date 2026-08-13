@@ -278,6 +278,13 @@ async function registerMusicWaveTab(tabId) {
   return { registered: true };
 }
 
+async function registerMusicWaveTabIfMatching(tabId, knownUrl) {
+  if (!Number.isInteger(tabId)) return { registered: false };
+  const url = knownUrl || (await chrome.tabs.get(tabId)).url || "";
+  if (!url.startsWith(MUSIC_WAVE_HOME)) return { registered: false };
+  return registerMusicWaveTab(tabId);
+}
+
 async function primeMusicWaveTabPresence() {
   const tabs = await chrome.tabs.query({ url: MUSIC_WAVE_MATCH });
   const tabIds = tabs.map((tab) => tab.id).filter(Number.isInteger);
@@ -397,21 +404,46 @@ function scheduleTabPresenceCheck() {
   }, TAB_CHECK_DELAY_MS);
 }
 
+async function recordTabMonitorError(event, error) {
+  await chrome.storage.local.set({
+    lastTabMonitor: {
+      event,
+      error: String(error?.message || error || "unknown-error"),
+      timestamp: Date.now()
+    }
+  });
+}
+
 chrome.tabs.onCreated.addListener(scheduleTabPresenceCheck);
 chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
-  handleMusicWaveTabRemoved(tabId, removeInfo).catch(() => {});
+  handleMusicWaveTabRemoved(tabId, removeInfo).catch((error) =>
+    recordTabMonitorError("tab-removed-error", error).catch(() => {})
+  );
 });
-chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  const url = changeInfo.url || tab.url || "";
+  if (url.startsWith(MUSIC_WAVE_HOME)) {
+    registerMusicWaveTab(tabId).catch((error) =>
+      recordTabMonitorError("tab-updated-error", error).catch(() => {})
+    );
+  }
   if (changeInfo.url || changeInfo.status === "complete") {
     scheduleTabPresenceCheck();
   }
+});
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  registerMusicWaveTabIfMatching(tabId).catch((error) =>
+    recordTabMonitorError("tab-activated-error", error).catch(() => {})
+  );
 });
 chrome.windows.onCreated.addListener(scheduleTabPresenceCheck);
 chrome.windows.onRemoved.addListener(scheduleTabPresenceCheck);
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === TAB_WATCH_ALARM) {
-    checkMusicWaveTabPresence().catch(() => {});
+    checkMusicWaveTabPresence().catch((error) =>
+      recordTabMonitorError("alarm-error", error).catch(() => {})
+    );
   }
 });
 
@@ -420,6 +452,40 @@ ensureTabWatchAlarm().catch(() => {});
 injectWatcherIntoOpenTabs().catch(() => {});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "MUSIC_WAVE_REGISTER_TAB") {
+    registerMusicWaveTabIfMatching(message.tabId)
+      .then(sendResponse)
+      .catch((error) => sendResponse({ registered: false, reason: error.message }));
+    return true;
+  }
+
+  if (message?.type === "MUSIC_WAVE_TAB_MONITOR_STATUS") {
+    Promise.all([
+      chrome.tabs.query({ url: MUSIC_WAVE_MATCH }),
+      chrome.storage.local.get({
+        [TAB_PRESENCE_KEY]: false,
+        [TRACKED_TAB_IDS_KEY]: [],
+        lastTabMonitor: null
+      }),
+      chrome.storage.sync.get(DEFAULT_SETTINGS),
+      chrome.alarms.get(TAB_WATCH_ALARM)
+    ])
+      .then(([tabs, state, settings, alarm]) =>
+        sendResponse({
+          queriedTabCount: tabs.length,
+          trackedTabCount: Array.isArray(state[TRACKED_TAB_IDS_KEY])
+            ? state[TRACKED_TAB_IDS_KEY].length
+            : 0,
+          wasOpen: Boolean(state[TAB_PRESENCE_KEY]),
+          enabled: Boolean(settings.tabCloseAlertEnabled),
+          alarmActive: Boolean(alarm),
+          lastMonitor: state.lastTabMonitor
+        })
+      )
+      .catch((error) => sendResponse({ error: error.message }));
+    return true;
+  }
+
   if (message?.type === "MUSIC_WAVE_TAB_PRESENT") {
     registerMusicWaveTab(sender.tab?.id)
       .then(sendResponse)
