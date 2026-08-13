@@ -4,7 +4,7 @@
 
 ## 다운로드
 
-**[Music Wave Alert v1.2.4 다운로드](https://raw.githubusercontent.com/Junho1224/musicwave-chrome-extension/main/release/music-wave-alert-extension-v1.2.4.zip)**
+**[Music Wave Alert v1.2.5 다운로드](https://raw.githubusercontent.com/Junho1224/musicwave-chrome-extension/main/release/music-wave-alert-extension-v1.2.5.zip)**
 
 ZIP 파일을 받은 뒤 압축을 풀고 아래 순서대로 설치하세요.
 
@@ -17,7 +17,7 @@ ZIP 파일을 받은 뒤 압축을 풀고 아래 순서대로 설치하세요.
 3. 오른쪽 위의 **개발자 모드**를 켭니다.
 4. **압축해제된 확장 프로그램을 로드합니다**를 누릅니다.
 5. `manifest.json` 파일이 들어 있는 폴더를 선택합니다.
-6. Chrome 확장 프로그램 목록에 **Music Wave Alert 1.2.4**가 나타나는지 확인합니다.
+6. Chrome 확장 프로그램 목록에 **Music Wave Alert 1.2.5**가 나타나는지 확인합니다.
 
 설치 후 Chrome 확장 프로그램 메뉴에서 Music Wave Alert를 고정해두면 편리합니다.
 
@@ -56,6 +56,12 @@ ZIP 파일을 받은 뒤 압축을 풀고 아래 순서대로 설치하세요.
 MUSIC WAVE 탭을 음소거하면 페이지 경고음도 들리지 않을 수 있으므로 PC 알림 또는 휴대폰 알림을 함께 켜두세요.
 
 ## 릴리즈
+
+### v1.2.5
+
+- 확장 프로그램 새로고침 후 폐기된 콘텐츠 컨텍스트 오류 방지
+- 이미 열려 있는 MUSIC WAVE 탭에 최신 감시 스크립트 자동 재적용
+- 중복 감시 스크립트 실행 방지
 
 ### v1.2.4
 

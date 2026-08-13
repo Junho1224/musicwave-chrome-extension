@@ -1,9 +1,14 @@
 (function startMusicWaveWatcher() {
   "use strict";
 
-  if (window.top !== window || !globalThis.MusicWaveDetector) {
+  if (
+    window.top !== window ||
+    !globalThis.MusicWaveDetector ||
+    globalThis.__musicWaveAlertWatcherStarted
+  ) {
     return;
   }
+  globalThis.__musicWaveAlertWatcherStarted = true;
 
   const DEFAULT_SETTINGS = Object.freeze({
     alertsEnabled: true,
@@ -25,6 +30,17 @@
   let latestSignals = [];
   let titleFlashToken = 0;
   const remoteRetryTimers = new Map();
+
+  function sendRuntimeMessage(message) {
+    try {
+      if (!chrome.runtime?.id) {
+        return Promise.resolve(undefined);
+      }
+      return chrome.runtime.sendMessage(message).catch(() => undefined);
+    } catch (_error) {
+      return Promise.resolve(undefined);
+    }
+  }
 
   function isVisible(element) {
     if (!(element instanceof HTMLElement)) {
@@ -140,7 +156,7 @@
       }
 
       try {
-        const response = await chrome.runtime.sendMessage({
+        const response = await sendRuntimeMessage({
           type: "MUSIC_WAVE_ALERT_RETRY_REMOTE",
           signal
         });
@@ -287,8 +303,7 @@
       flashTitle(signal);
     }
 
-    chrome.runtime
-      .sendMessage({ type: "MUSIC_WAVE_ALERT", signal })
+    sendRuntimeMessage({ type: "MUSIC_WAVE_ALERT", signal })
       .then((response) => {
         if (settings.ntfyEnabled && !response?.remote?.delivered) {
           scheduleRemoteRetry(signal);
@@ -331,15 +346,11 @@
   }
 
   function reportTabPresent() {
-    return chrome.runtime
-      .sendMessage({ type: "MUSIC_WAVE_TAB_PRESENT" })
-      .catch(() => undefined);
+    return sendRuntimeMessage({ type: "MUSIC_WAVE_TAB_PRESENT" });
   }
 
   function reportTabLeaving() {
-    chrome.runtime
-      .sendMessage({ type: "MUSIC_WAVE_TAB_LEAVING" })
-      .catch(() => {});
+    sendRuntimeMessage({ type: "MUSIC_WAVE_TAB_LEAVING" });
   }
 
   async function initialize() {

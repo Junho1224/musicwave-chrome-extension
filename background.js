@@ -53,11 +53,13 @@ chrome.runtime.onInstalled.addListener(async () => {
   await chrome.storage.sync.set({ ...DEFAULT_SETTINGS, ...current });
   await checkMusicWaveTabPresence({ notify: false });
   await ensureTabWatchAlarm();
+  await injectWatcherIntoOpenTabs();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   checkMusicWaveTabPresence({ notify: false }).catch(() => {});
   ensureTabWatchAlarm().catch(() => {});
+  injectWatcherIntoOpenTabs().catch(() => {});
 });
 
 // 열린 탭이 있을 때만 상태를 보강한다. 탭 종료 이벤트로 서비스 워커가
@@ -370,6 +372,23 @@ async function ensureTabWatchAlarm() {
   }
 }
 
+async function injectWatcherIntoOpenTabs() {
+  const tabs = await chrome.tabs.query({ url: MUSIC_WAVE_MATCH });
+  await Promise.all(
+    tabs
+      .map((tab) => tab.id)
+      .filter(Number.isInteger)
+      .map((tabId) =>
+        chrome.scripting
+          .executeScript({
+            target: { tabId },
+            files: ["detector-core.js", "content.js"]
+          })
+          .catch(() => undefined)
+      )
+  );
+}
+
 function scheduleTabPresenceCheck() {
   if (tabPresenceTimer !== null) clearTimeout(tabPresenceTimer);
   tabPresenceTimer = setTimeout(() => {
@@ -398,6 +417,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 primeMusicWaveTabPresence().catch(() => {});
 ensureTabWatchAlarm().catch(() => {});
+injectWatcherIntoOpenTabs().catch(() => {});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "MUSIC_WAVE_TAB_PRESENT") {

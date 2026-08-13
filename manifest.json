@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Music Wave Alert",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "MUSIC WAVE 경고를 감지해 PC와 선택한 휴대폰 알림 채널로 알려줍니다.",
   "permissions": [
     "activeTab",
     "alarms",
     "notifications",
+    "scripting",
     "storage"
   ],
   "host_permissions": [
