@@ -1,14 +1,19 @@
 "use strict";
 
-importScripts("notification-providers.js");
+importScripts("notification-providers.js", "tab-monitor-core.js");
 
 const DEFAULT_SETTINGS = Object.freeze({
   alertsEnabled: true,
   soundEnabled: true,
   titleFlashEnabled: true,
+  tabCloseAlertEnabled: true,
   ntfyEnabled: false,
   ntfyTopic: ""
 });
+const MUSIC_WAVE_HOME = "https://musicwave.melon.com/";
+const MUSIC_WAVE_MATCH = "https://musicwave.melon.com/*";
+const TAB_PRESENCE_KEY = "musicWaveTabWasOpen";
+const TAB_CHECK_DELAY_MS = 1200;
 const ALERT_DEFINITIONS = Object.freeze({
   continue: Object.freeze({
     kind: "continue",
@@ -22,6 +27,12 @@ const ALERT_DEFINITIONS = Object.freeze({
     title: "기계적 스트리밍 감지",
     message: "MUSIC WAVE에 스트리밍 감지 경고가 나타났습니다. 탭을 직접 확인하세요."
   }),
+  tabClosed: Object.freeze({
+    kind: "tabClosed",
+    severity: "critical",
+    title: "MUSIC WAVE 탭 종료",
+    message: "MUSIC WAVE 탭이 닫혔습니다. 다시 열어 감시를 계속하세요."
+  }),
   test: Object.freeze({
     kind: "test",
     severity: "warning",
@@ -32,11 +43,20 @@ const ALERT_DEFINITIONS = Object.freeze({
 const NOTIFICATION_ICON =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9WlJ4AAAAASUVORK5CYII=";
 const recentAlerts = new Map();
+let tabPresenceTimer = null;
 
 chrome.runtime.onInstalled.addListener(async () => {
   const current = await chrome.storage.sync.get(DEFAULT_SETTINGS);
   await chrome.storage.sync.set({ ...DEFAULT_SETTINGS, ...current });
+  await checkMusicWaveTabPresence({ notify: false });
 });
+
+chrome.runtime.onStartup.addListener(() => {
+  checkMusicWaveTabPresence({ notify: false }).catch(() => {});
+});
+
+// 모듈 로드시 상태를 초기화하면 탭 종료 이벤트로 서비스 워커가 깨어날 때
+// 직전의 열림 상태가 사라지므로 설치·브라우저 시작 시에만 초기화한다.
 
 function notificationId(kind, tabId) {
   return `music-wave:${kind}:${Number.isInteger(tabId) ? tabId : "unknown"}`;
@@ -64,6 +84,18 @@ async function focusAlertTab(id) {
   } catch (_error) {
     // 이미 닫힌 탭이면 별도 동작이 필요 없다.
   }
+}
+
+async function openMusicWaveTab() {
+  const [existing] = await chrome.tabs.query({ url: MUSIC_WAVE_MATCH });
+  if (existing?.id) {
+    const tab = await chrome.tabs.update(existing.id, { active: true });
+    if (Number.isInteger(tab.windowId)) {
+      await chrome.windows.update(tab.windowId, { focused: true });
+    }
+    return;
+  }
+  await chrome.tabs.create({ url: MUSIC_WAVE_HOME });
 }
 
 async function reloadContinueTab(id) {
@@ -119,7 +151,9 @@ async function createDesktopAlert(signal, tabId) {
     buttons:
       signal.kind === "continue"
         ? [{ title: "탭 열기" }, { title: "이 탭 새로고침" }]
-        : [{ title: "탭 열기" }]
+        : signal.kind === "tabClosed"
+          ? [{ title: "MUSIC WAVE 열기" }]
+          : [{ title: "탭 열기" }]
   });
 
   if (Number.isInteger(tabId)) {
@@ -182,6 +216,45 @@ async function createAlert(kind, tabId, options = {}) {
   return { notified: desktop.delivered, remote };
 }
 
+async function checkMusicWaveTabPresence({ notify = true } = {}) {
+  const [tabs, session, settings, windows] = await Promise.all([
+    chrome.tabs.query({ url: MUSIC_WAVE_MATCH }),
+    chrome.storage.session.get({ [TAB_PRESENCE_KEY]: false }),
+    chrome.storage.sync.get(DEFAULT_SETTINGS),
+    chrome.windows.getAll({ windowTypes: ["normal"] })
+  ]);
+  const result = MusicWaveTabMonitor.evaluatePresence({
+    wasOpen: Boolean(session[TAB_PRESENCE_KEY]),
+    currentCount: tabs.length,
+    notificationsEnabled: notify && settings.tabCloseAlertEnabled,
+    hasBrowserWindow: windows.length > 0
+  });
+
+  await chrome.storage.session.set({ [TAB_PRESENCE_KEY]: result.wasOpen });
+  if (result.shouldNotify) {
+    await createAlert("tabClosed", null, { ignoreCooldown: true });
+  }
+  return result;
+}
+
+function scheduleTabPresenceCheck() {
+  if (tabPresenceTimer !== null) clearTimeout(tabPresenceTimer);
+  tabPresenceTimer = setTimeout(() => {
+    tabPresenceTimer = null;
+    checkMusicWaveTabPresence().catch(() => {});
+  }, TAB_CHECK_DELAY_MS);
+}
+
+chrome.tabs.onCreated.addListener(scheduleTabPresenceCheck);
+chrome.tabs.onRemoved.addListener(scheduleTabPresenceCheck);
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
+  if (changeInfo.url || changeInfo.status === "complete") {
+    scheduleTabPresenceCheck();
+  }
+});
+chrome.windows.onCreated.addListener(scheduleTabPresenceCheck);
+chrome.windows.onRemoved.addListener(scheduleTabPresenceCheck);
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "MUSIC_WAVE_ALERT") {
     createAlert(message.signal?.kind, sender.tab?.id)
@@ -221,11 +294,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return undefined;
 });
 
-chrome.notifications.onClicked.addListener((id) => focusAlertTab(id));
+chrome.notifications.onClicked.addListener((id) => {
+  if (kindFromNotificationId(id) === "tabClosed") {
+    openMusicWaveTab().catch(() => {});
+    return;
+  }
+  focusAlertTab(id);
+});
 
 chrome.notifications.onButtonClicked.addListener((id, buttonIndex) => {
   if (kindFromNotificationId(id) === "continue" && buttonIndex === 1) {
     reloadContinueTab(id);
+    return;
+  }
+  if (kindFromNotificationId(id) === "tabClosed") {
+    openMusicWaveTab().catch(() => {});
     return;
   }
   focusAlertTab(id);

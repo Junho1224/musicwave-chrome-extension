@@ -4,6 +4,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   alertsEnabled: true,
   soundEnabled: true,
   titleFlashEnabled: true,
+  tabCloseAlertEnabled: true,
   ntfyEnabled: false,
   ntfyTopic: ""
 });
@@ -13,7 +14,8 @@ const CONNECTION_HUB_URL = "https://music-wave-alert-connect.ho1.chatgpt.site/";
 const controls = {
   alertsEnabled: document.getElementById("alerts-enabled"),
   soundEnabled: document.getElementById("sound-enabled"),
-  titleFlashEnabled: document.getElementById("title-flash-enabled")
+  titleFlashEnabled: document.getElementById("title-flash-enabled"),
+  tabCloseAlertEnabled: document.getElementById("tab-close-alert-enabled")
 };
 const ntfyToggle = document.getElementById("ntfy-enabled");
 const pageStatus = document.getElementById("page-status");

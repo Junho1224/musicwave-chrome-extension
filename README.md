@@ -4,7 +4,7 @@
 
 ## 다운로드
 
-**[Music Wave Alert v1.1.1 다운로드](https://raw.githubusercontent.com/Junho1224/musicwave-chrome-extension/main/release/music-wave-alert-extension-v1.1.1.zip)**
+**[Music Wave Alert v1.2.0 다운로드](https://raw.githubusercontent.com/Junho1224/musicwave-chrome-extension/main/release/music-wave-alert-extension-v1.2.0.zip)**
 
 ZIP 파일을 받은 뒤 압축을 풀고 아래 순서대로 설치하세요.
 
@@ -17,7 +17,7 @@ ZIP 파일을 받은 뒤 압축을 풀고 아래 순서대로 설치하세요.
 3. 오른쪽 위의 **개발자 모드**를 켭니다.
 4. **압축해제된 확장 프로그램을 로드합니다**를 누릅니다.
 5. `manifest.json` 파일이 들어 있는 폴더를 선택합니다.
-6. Chrome 확장 프로그램 목록에 **Music Wave Alert 1.1.1**이 나타나는지 확인합니다.
+6. Chrome 확장 프로그램 목록에 **Music Wave Alert 1.2.0**이 나타나는지 확인합니다.
 
 설치 후 Chrome 확장 프로그램 메뉴에서 Music Wave Alert를 고정해두면 편리합니다.
 
@@ -30,6 +30,8 @@ ZIP 파일을 받은 뒤 압축을 풀고 아래 순서대로 설치하세요.
 5. 필요한 알림 설정을 켠 뒤 MUSIC WAVE 페이지를 한 번 새로고침합니다.
 
 계속 듣기 알림에서는 **이 탭 새로고침**을 사용할 수 있습니다. 기계적 스트리밍 감지 알림이 오면 MUSIC WAVE 탭에서 직접 인증해주세요.
+
+**MUSIC WAVE 탭 종료 알림**을 켜두면 Chrome에서 마지막 MUSIC WAVE 탭을 닫거나 다른 주소로 이동했을 때 PC와 연결된 휴대폰으로 알려줍니다. Chrome 전체가 종료된 경우에는 알림을 보낼 수 없습니다.
 
 ## 휴대폰 알림 연결
 
@@ -54,6 +56,12 @@ ZIP 파일을 받은 뒤 압축을 풀고 아래 순서대로 설치하세요.
 MUSIC WAVE 탭을 음소거하면 페이지 경고음도 들리지 않을 수 있으므로 PC 알림 또는 휴대폰 알림을 함께 켜두세요.
 
 ## 릴리즈
+
+### v1.2.0
+
+- 마지막 MUSIC WAVE 탭 종료 및 다른 주소 이동 감지
+- PC와 연결된 휴대폰으로 탭 종료 알림 전송
+- 탭 종료 알림에서 MUSIC WAVE 다시 열기 지원
 
 ### v1.1.1
 
