@@ -27,6 +27,8 @@ test("monitors the last MUSIC WAVE tab and exposes a close-alert setting", () =>
   const popup = readFileSync(join(root, "popup.html"), "utf8");
   assert.match(background, /chrome\.tabs\.onRemoved\.addListener/);
   assert.match(background, /checkMusicWaveTabPresence/);
+  assert.match(background, /primeMusicWaveTabPresence/);
+  assert.match(background, /chrome\.storage\.local\.get\(\{ \[TAB_PRESENCE_KEY\]/);
   assert.match(background, /createAlert\("tabClosed"/);
   assert.match(popup, /tab-close-alert-enabled/);
 });

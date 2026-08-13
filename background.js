@@ -55,8 +55,8 @@ chrome.runtime.onStartup.addListener(() => {
   checkMusicWaveTabPresence({ notify: false }).catch(() => {});
 });
 
-// 모듈 로드시 상태를 초기화하면 탭 종료 이벤트로 서비스 워커가 깨어날 때
-// 직전의 열림 상태가 사라지므로 설치·브라우저 시작 시에만 초기화한다.
+// 열린 탭이 있을 때만 상태를 보강한다. 탭 종료 이벤트로 서비스 워커가
+// 깨어난 경우 직전의 열림 상태를 지우면 종료 전환을 감지할 수 없다.
 
 function notificationId(kind, tabId) {
   return `music-wave:${kind}:${Number.isInteger(tabId) ? tabId : "unknown"}`;
@@ -217,24 +217,31 @@ async function createAlert(kind, tabId, options = {}) {
 }
 
 async function checkMusicWaveTabPresence({ notify = true } = {}) {
-  const [tabs, session, settings, windows] = await Promise.all([
+  const [tabs, presenceState, settings, windows] = await Promise.all([
     chrome.tabs.query({ url: MUSIC_WAVE_MATCH }),
-    chrome.storage.session.get({ [TAB_PRESENCE_KEY]: false }),
+    chrome.storage.local.get({ [TAB_PRESENCE_KEY]: false }),
     chrome.storage.sync.get(DEFAULT_SETTINGS),
     chrome.windows.getAll({ windowTypes: ["normal"] })
   ]);
   const result = MusicWaveTabMonitor.evaluatePresence({
-    wasOpen: Boolean(session[TAB_PRESENCE_KEY]),
+    wasOpen: Boolean(presenceState[TAB_PRESENCE_KEY]),
     currentCount: tabs.length,
     notificationsEnabled: notify && settings.tabCloseAlertEnabled,
     hasBrowserWindow: windows.length > 0
   });
 
-  await chrome.storage.session.set({ [TAB_PRESENCE_KEY]: result.wasOpen });
+  await chrome.storage.local.set({ [TAB_PRESENCE_KEY]: result.wasOpen });
   if (result.shouldNotify) {
     await createAlert("tabClosed", null, { ignoreCooldown: true });
   }
   return result;
+}
+
+async function primeMusicWaveTabPresence() {
+  const tabs = await chrome.tabs.query({ url: MUSIC_WAVE_MATCH });
+  if (tabs.length > 0) {
+    await chrome.storage.local.set({ [TAB_PRESENCE_KEY]: true });
+  }
 }
 
 function scheduleTabPresenceCheck() {
@@ -254,6 +261,8 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
 });
 chrome.windows.onCreated.addListener(scheduleTabPresenceCheck);
 chrome.windows.onRemoved.addListener(scheduleTabPresenceCheck);
+
+primeMusicWaveTabPresence().catch(() => {});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "MUSIC_WAVE_ALERT") {
