@@ -2,7 +2,10 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { evaluatePresence } = require("../tab-monitor-core.js");
+const {
+  evaluatePresence,
+  evaluateTrackedRemoval
+} = require("../tab-monitor-core.js");
 
 test("notifies when the last MUSIC WAVE tab closes", () => {
   assert.deepEqual(
@@ -49,5 +52,31 @@ test("continues tracking while close notifications are disabled", () => {
       hasBrowserWindow: true
     }),
     { wasOpen: true, shouldNotify: false }
+  );
+});
+
+test("directly detects removal of the tracked last tab", () => {
+  assert.deepEqual(
+    evaluateTrackedRemoval({
+      trackedTabIds: [41],
+      removedTabId: 41,
+      remainingTabIds: [],
+      notificationsEnabled: true,
+      hasBrowserWindow: true
+    }),
+    { wasTracked: true, trackedTabIds: [], shouldNotify: true }
+  );
+});
+
+test("ignores removal of an unrelated tab", () => {
+  assert.deepEqual(
+    evaluateTrackedRemoval({
+      trackedTabIds: [41],
+      removedTabId: 99,
+      remainingTabIds: [41],
+      notificationsEnabled: true,
+      hasBrowserWindow: true
+    }),
+    { wasTracked: false, trackedTabIds: [41], shouldNotify: false }
   );
 });

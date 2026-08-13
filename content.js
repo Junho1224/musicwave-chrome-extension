@@ -329,11 +329,25 @@
     scanTimer = window.setTimeout(scanPage, SCAN_DEBOUNCE_MS);
   }
 
+  function reportTabPresent() {
+    return chrome.runtime
+      .sendMessage({ type: "MUSIC_WAVE_TAB_PRESENT" })
+      .catch(() => undefined);
+  }
+
+  function reportTabLeaving() {
+    chrome.runtime
+      .sendMessage({ type: "MUSIC_WAVE_TAB_LEAVING" })
+      .catch(() => {});
+  }
+
   async function initialize() {
     settings = {
       ...DEFAULT_SETTINGS,
       ...(await chrome.storage.sync.get(DEFAULT_SETTINGS))
     };
+    await reportTabPresent();
+    window.addEventListener("pagehide", reportTabLeaving, { capture: true });
 
     const observer = new MutationObserver(scheduleScan);
     observer.observe(document.documentElement, {
