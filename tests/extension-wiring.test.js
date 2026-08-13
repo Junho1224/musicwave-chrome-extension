@@ -25,6 +25,7 @@ test("retries remote delivery without repeating the desktop alert", () => {
 test("monitors the last MUSIC WAVE tab and exposes a close-alert setting", () => {
   const background = readFileSync(join(root, "background.js"), "utf8");
   const content = readFileSync(join(root, "content.js"), "utf8");
+  const manifest = readFileSync(join(root, "manifest.json"), "utf8");
   const popup = readFileSync(join(root, "popup.html"), "utf8");
   assert.match(background, /chrome\.tabs\.onRemoved\.addListener/);
   assert.match(background, /checkMusicWaveTabPresence/);
@@ -36,5 +37,8 @@ test("monitors the last MUSIC WAVE tab and exposes a close-alert setting", () =>
   assert.match(content, /MUSIC_WAVE_TAB_PRESENT/);
   assert.match(content, /MUSIC_WAVE_TAB_LEAVING/);
   assert.match(content, /TAB_HEARTBEAT_MS/);
+  assert.match(background, /chrome\.alarms\.onAlarm\.addListener/);
+  assert.match(background, /TAB_WATCH_PERIOD_MINUTES = 0\.5/);
+  assert.match(manifest, /"alarms"/);
   assert.match(popup, /tab-close-alert-enabled/);
 });

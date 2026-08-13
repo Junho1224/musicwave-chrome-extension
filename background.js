@@ -15,6 +15,8 @@ const MUSIC_WAVE_MATCH = "https://musicwave.melon.com/*";
 const TAB_PRESENCE_KEY = "musicWaveTabWasOpen";
 const TRACKED_TAB_IDS_KEY = "musicWaveTrackedTabIds";
 const TAB_CHECK_DELAY_MS = 1200;
+const TAB_WATCH_ALARM = "music-wave-tab-watch";
+const TAB_WATCH_PERIOD_MINUTES = 0.5;
 const ALERT_DEFINITIONS = Object.freeze({
   continue: Object.freeze({
     kind: "continue",
@@ -50,10 +52,12 @@ chrome.runtime.onInstalled.addListener(async () => {
   const current = await chrome.storage.sync.get(DEFAULT_SETTINGS);
   await chrome.storage.sync.set({ ...DEFAULT_SETTINGS, ...current });
   await checkMusicWaveTabPresence({ notify: false });
+  await ensureTabWatchAlarm();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   checkMusicWaveTabPresence({ notify: false }).catch(() => {});
+  ensureTabWatchAlarm().catch(() => {});
 });
 
 // 열린 탭이 있을 때만 상태를 보강한다. 탭 종료 이벤트로 서비스 워커가
@@ -357,6 +361,15 @@ async function handleMusicWavePageLeaving(tabId) {
   return { notified: false, reason: "tab-still-open" };
 }
 
+async function ensureTabWatchAlarm() {
+  const existing = await chrome.alarms.get(TAB_WATCH_ALARM);
+  if (!existing) {
+    await chrome.alarms.create(TAB_WATCH_ALARM, {
+      periodInMinutes: TAB_WATCH_PERIOD_MINUTES
+    });
+  }
+}
+
 function scheduleTabPresenceCheck() {
   if (tabPresenceTimer !== null) clearTimeout(tabPresenceTimer);
   tabPresenceTimer = setTimeout(() => {
@@ -377,7 +390,14 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
 chrome.windows.onCreated.addListener(scheduleTabPresenceCheck);
 chrome.windows.onRemoved.addListener(scheduleTabPresenceCheck);
 
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === TAB_WATCH_ALARM) {
+    checkMusicWaveTabPresence().catch(() => {});
+  }
+});
+
 primeMusicWaveTabPresence().catch(() => {});
+ensureTabWatchAlarm().catch(() => {});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "MUSIC_WAVE_TAB_PRESENT") {
