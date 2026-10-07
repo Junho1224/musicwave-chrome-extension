@@ -42,6 +42,15 @@ test("detects mechanical streaming warnings", () => {
   );
 });
 
+test("detects a continue prompt split by spaces or line breaks", () => {
+  for (const text of [
+    "지금 듣고 계신 음악을 계속 들으 시겠습니까?",
+    "지금 듣고 계신 음악을 계속 들으\n시겠\n습니까?"
+  ]) {
+    assert.deepEqual(detectSignals(text).map((signal) => signal.kind), ["continue"]);
+  }
+});
+
 test("does not flag ordinary music wave text", () => {
   assert.deepEqual(detectSignals("하얀 그리움 프로미스나인 437명 참여중"), []);
 });

@@ -6,19 +6,23 @@ const { readFileSync } = require("node:fs");
 const { join } = require("node:path");
 const vm = require("node:vm");
 
-function loadBackground({ failDesktop = false, failRemote = false, failBadge = false } = {}) {
+function loadBackground({ failDesktop = false, failRemote = false, failBadge = false,
+  savedSettings = {}, state = {} } = {}) {
   const root = join(__dirname, "..");
-  const local = {};
+  const local = state;
+  let installedListener;
   const counters = { desktop: 0, remote: 0 };
   const settings = { alertsEnabled: true, ntfyEnabled: true,
-    ntfyTopic: `music-wave-${"a1".repeat(24)}` };
+    ntfyTopic: `music-wave-${"a1".repeat(24)}`, ...savedSettings };
   const event = () => ({ addListener() {} });
   const context = vm.createContext({
     setTimeout, clearTimeout,
     chrome: {
-      runtime: { onInstalled: event(), onStartup: event(), onMessage: event() },
+      runtime: { onInstalled: { addListener(listener) { installedListener = listener; } },
+        onStartup: event(), onMessage: event() },
       storage: {
-        sync: { async get(defaults) { return { ...defaults, ...settings }; }, async set() {} },
+        sync: { async get(defaults) { return { ...defaults, ...settings }; },
+          async set(values) { Object.assign(settings, values); } },
         local: { async get(defaults) { return { ...defaults, ...local }; },
           async set(values) { Object.assign(local, values); } }
       },
@@ -36,7 +40,8 @@ function loadBackground({ failDesktop = false, failRemote = false, failBadge = f
       },
       tabs: { async query() { return []; }, onCreated: event(), onRemoved: event(),
         onUpdated: event(), onActivated: event() },
-      windows: { onCreated: event(), onRemoved: event() },
+      windows: { async getAll() { return [{ id: 1, type: "normal" }]; },
+        onCreated: event(), onRemoved: event() },
       alarms: { async get() { return {}; }, onAlarm: event() },
       scripting: { async executeScript() {} }
     },
@@ -48,7 +53,7 @@ function loadBackground({ failDesktop = false, failRemote = false, failBadge = f
   context.importScripts = (...files) => files.forEach((file) =>
     vm.runInContext(readFileSync(join(root, file), "utf8"), context));
   vm.runInContext(readFileSync(join(root, "background.js"), "utf8"), context);
-  return { context, local, counters };
+  return { context, local, counters, settings, async installed() { await installedListener(); } };
 }
 
 test("a desktop API failure does not block phone delivery or hide detection", async () => {
@@ -89,4 +94,46 @@ test("overlapping alerts share in-flight deliveries", async () => {
   const { context, counters } = loadBackground();
   await vm.runInContext('Promise.all([createAlert("continue", 41), createAlert("continue", 41)])', context);
   assert.deepEqual(counters, { desktop: 1, remote: 1 });
+});
+
+test("a fresh installation enables automatic confirmation by default", async () => {
+  const background = loadBackground();
+  await background.installed();
+  assert.equal(background.settings.autoConfirmContinueEnabled, true);
+  assert.equal(background.settings.autoReloadContinueEnabled, false);
+  assert.equal(background.local.musicWaveAutoContinueDefaultsVersion, 1);
+});
+
+test("upgrading the former disabled defaults enables confirmation once", async () => {
+  const background = loadBackground({ savedSettings: {
+    autoConfirmContinueEnabled: false, autoReloadContinueEnabled: false
+  } });
+  await background.installed();
+  assert.equal(background.settings.autoConfirmContinueEnabled, true);
+  background.settings.autoConfirmContinueEnabled = false;
+  await background.installed();
+  assert.equal(background.settings.autoConfirmContinueEnabled, false);
+});
+
+test("an existing automatic reload choice is retained during upgrade", async () => {
+  const background = loadBackground({ savedSettings: {
+    autoConfirmContinueEnabled: false, autoReloadContinueEnabled: true
+  } });
+  await background.installed();
+  assert.equal(background.settings.autoConfirmContinueEnabled, false);
+  assert.equal(background.settings.autoReloadContinueEnabled, true);
+});
+
+test("a restarted worker preserves a later opt-out on subsequent extension reload", async () => {
+  const state = {};
+  const original = loadBackground({ state, savedSettings: {
+    autoConfirmContinueEnabled: false, autoReloadContinueEnabled: false
+  } });
+  await original.installed();
+  const restarted = loadBackground({ state, savedSettings: {
+    autoConfirmContinueEnabled: false, autoReloadContinueEnabled: false
+  } });
+  await restarted.installed();
+  assert.equal(restarted.settings.autoConfirmContinueEnabled, false);
+  assert.equal(restarted.settings.autoReloadContinueEnabled, false);
 });

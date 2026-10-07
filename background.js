@@ -8,7 +8,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   titleFlashEnabled: true,
   tabCloseAlertEnabled: true,
   playbackAlertEnabled: true,
-  autoConfirmContinueEnabled: false,
+  autoConfirmContinueEnabled: true,
   autoReloadContinueEnabled: false,
   ntfyEnabled: false,
   ntfyTopic: ""
@@ -57,10 +57,29 @@ const recentAlerts = new Map();
 const pendingDeliveries = new Map();
 const pendingContinueReloads = new Set();
 const AUTO_CONTINUE_RELOAD_COOLDOWN_MS = 60000;
+const AUTO_CONTINUE_DEFAULTS_KEY = "musicWaveAutoContinueDefaultsVersion";
+const AUTO_CONTINUE_DEFAULTS_VERSION = 1;
 let tabPresenceTimer = null;
 
+async function ensureAutoContinueDefaults() {
+  const [current, state] = await Promise.all([
+    chrome.storage.sync.get(DEFAULT_SETTINGS),
+    chrome.storage.local.get({ [AUTO_CONTINUE_DEFAULTS_KEY]: 0 })
+  ]);
+  if (state[AUTO_CONTINUE_DEFAULTS_KEY] >= AUTO_CONTINUE_DEFAULTS_VERSION) return current;
+
+  // Apply the new default once; retain a selected reload mode and later opt-outs.
+  const autoConfirmContinueEnabled = !current.autoReloadContinueEnabled;
+  if (current.autoConfirmContinueEnabled !== autoConfirmContinueEnabled) {
+    current.autoConfirmContinueEnabled = autoConfirmContinueEnabled;
+    await chrome.storage.sync.set({ autoConfirmContinueEnabled });
+  }
+  await chrome.storage.local.set({ [AUTO_CONTINUE_DEFAULTS_KEY]: AUTO_CONTINUE_DEFAULTS_VERSION });
+  return current;
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
-  const current = await chrome.storage.sync.get(DEFAULT_SETTINGS);
+  const current = await ensureAutoContinueDefaults();
   await chrome.storage.sync.set({ ...DEFAULT_SETTINGS, ...current });
   await checkMusicWaveTabPresence({ notify: false });
   await ensureTabWatchAlarm();

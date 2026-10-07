@@ -9,7 +9,7 @@ const { join } = require("node:path");
 async function loadContent({ text = "", bodyText = text, settings = {}, respond,
   autoButton = true, buttonDisabled = false, clickThrows = false,
   hidesOnClick = true, captcha = false, runtimeValid = true,
-  reloadResponse = { reloaded: true } } = {}) {
+  reloadResponse = { reloaded: true }, useDefaultAutoContinueSettings = false } = {}) {
   let now = 100000;
   let messageListener;
   let settingsListener;
@@ -47,7 +47,8 @@ async function loadContent({ text = "", bodyText = text, settings = {}, respond,
   modal.querySelector = (selector) => selector === "button.btn-submit"
     ? (autoButton ? button : null) : selector.includes("captcha") && captcha ? new Element() : null;
   const currentSettings = { alertsEnabled: false, ntfyEnabled: true,
-    soundEnabled: false, titleFlashEnabled: false, ...settings };
+    soundEnabled: false, titleFlashEnabled: false,
+    ...(!useDefaultAutoContinueSettings ? { autoConfirmContinueEnabled: false } : {}), ...settings };
   const context = vm.createContext({
     Date: class extends Date { static now() { return now; } },
     HTMLElement: Element,
@@ -188,10 +189,25 @@ test("a visible confirmation sends its own alert instead of a duplicate stop ale
   assert.deepEqual(content.messages.map((message) => message.signal.kind), ["continue"]);
 });
 
-test("automatic confirmation stays off by default", async () => {
+test("a saved disabled confirmation setting leaves the warning for notification", async () => {
   const content = await loadContent({ text: "계속 들으시겠습니까?" });
   assert.equal(content.clicks, 0);
   assert.equal(content.messages[0].signal.kind, "continue");
+});
+
+test("fresh defaults automatically confirm a continue dialog", async () => {
+  const content = await loadContent({ text: "계속 들으시겠습니까?",
+    useDefaultAutoContinueSettings: true });
+  assert.equal(content.clicks, 1);
+  assert.equal(content.reloadRequests.length, 0);
+  assert.equal(content.messages.length, 0);
+});
+
+test("automatically confirms the user's spaced continue prompt", async () => {
+  const content = await loadContent({ text: "지금 듣고 계신 음악을 계속 들으 시겠습니까?",
+    useDefaultAutoContinueSettings: true });
+  assert.equal(content.clicks, 1);
+  assert.equal(content.messages.length, 0);
 });
 
 test("clicks a known confirmation once and rearms for a later popup", async () => {

@@ -17,7 +17,7 @@
     titleFlashEnabled: true,
     ntfyEnabled: false,
     playbackAlertEnabled: true,
-    autoConfirmContinueEnabled: false,
+    autoConfirmContinueEnabled: true,
     autoReloadContinueEnabled: false
   });
   const MAX_CANDIDATE_TEXT_LENGTH = 800;

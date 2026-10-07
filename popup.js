@@ -6,7 +6,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   titleFlashEnabled: true,
   tabCloseAlertEnabled: true,
   playbackAlertEnabled: true,
-  autoConfirmContinueEnabled: false,
+  autoConfirmContinueEnabled: true,
   autoReloadContinueEnabled: false,
   ntfyEnabled: false,
   ntfyTopic: ""
