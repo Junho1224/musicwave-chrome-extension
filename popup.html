@@ -37,9 +37,22 @@
           <input id="title-flash-enabled" type="checkbox" />
         </label>
         <label class="setting-row">
+          <span>재생 중단 알림 (15초 이상)</span>
+          <input id="playback-alert-enabled" type="checkbox" />
+        </label>
+        <label class="setting-row">
           <span>MUSIC WAVE 탭 종료 알림</span>
           <input id="tab-close-alert-enabled" type="checkbox" />
         </label>
+        <label class="setting-row">
+          <span>계속 듣기 자동 확인</span>
+          <input id="auto-confirm-continue-enabled" type="checkbox" />
+        </label>
+        <label class="setting-row">
+          <span>계속 듣기 자동 새로고침</span>
+          <input id="auto-reload-continue-enabled" type="checkbox" />
+        </label>
+        <p id="auto-continue-status" class="monitor-status">일반 계속 듣기 창에만 적용됩니다. 자동 확인과 새로고침 중 하나를 선택하세요.</p>
         <p id="tab-monitor-status" class="monitor-status">탭 감시 상태 확인 중…</p>
       </section>
 
@@ -71,6 +84,7 @@
       <section class="last-alert" aria-labelledby="last-alert-title">
         <h2 id="last-alert-title">마지막 감지</h2>
         <p id="last-alert">아직 감지된 경고가 없습니다.</p>
+        <p id="delivery-status" class="monitor-status" hidden></p>
       </section>
 
       <button id="test-alert" class="desktop-test" type="button">PC 테스트 알림 보내기</button>

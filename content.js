@@ -4,6 +4,7 @@
   if (
     window.top !== window ||
     !globalThis.MusicWaveDetector ||
+    !globalThis.MusicWavePlaybackMonitor ||
     globalThis.__musicWaveAlertWatcherStarted
   ) {
     return;
@@ -14,14 +15,21 @@
     alertsEnabled: true,
     soundEnabled: true,
     titleFlashEnabled: true,
-    ntfyEnabled: false
+    ntfyEnabled: false,
+    playbackAlertEnabled: true,
+    autoConfirmContinueEnabled: false,
+    autoReloadContinueEnabled: false
   });
   const MAX_CANDIDATE_TEXT_LENGTH = 800;
   const SCAN_DEBOUNCE_MS = 450;
   const FALLBACK_SCAN_MS = 4000;
-  const REMOTE_RETRY_MS = 12000;
-  const REMOTE_RETRY_LIMIT = 3;
+  const ALERT_RETRY_MS = 12000;
   const TAB_HEARTBEAT_MS = 15000;
+  const AUTO_CONFIRM_GRACE_MS = 5000;
+  let autoConfirmAttempted = false;
+  let lastAutoConfirmAt = null;
+  let lastAutoConfirmOutcome = null;
+  let lastAutoContinueAction = "confirm";
   const KNOWN_ALERT_SELECTOR = "#alertButton.melon-modal.d_modal_confirm";
 
   let settings = { ...DEFAULT_SETTINGS };
@@ -29,16 +37,27 @@
   let scanTimer = null;
   let latestSignals = [];
   let titleFlashToken = 0;
-  const remoteRetryTimers = new Map();
+  const alertDeliveries = new Map();
+  const playbackMonitor = MusicWavePlaybackMonitor.createMonitor();
+  let playbackStatus = { state: "unavailable", stopped: false, hasPlayed: false };
+
+  const PLAYBACK_STOPPED_SIGNAL = Object.freeze({
+    kind: "playbackStopped",
+    severity: "critical",
+    title: "MUSIC WAVE 재생 중단",
+    message: "음악 재생이 15초 이상 멈췄습니다. MUSIC WAVE 탭을 확인하세요."
+  });
 
   function sendRuntimeMessage(message) {
     try {
       if (!chrome.runtime?.id) {
-        return Promise.resolve(undefined);
+        return Promise.resolve({ notified: false, reason: "extension-reloaded" });
       }
-      return chrome.runtime.sendMessage(message).catch(() => undefined);
+      return chrome.runtime.sendMessage(message).catch(() => ({
+        notified: false, reason: "message-failed"
+      }));
     } catch (_error) {
-      return Promise.resolve(undefined);
+      return Promise.resolve({ notified: false, reason: "extension-reloaded" });
     }
   }
 
@@ -90,13 +109,6 @@
 
   function collectSignals() {
     const found = new Map();
-    const pageSignals = globalThis.MusicWaveDetector.detectSignals(
-      document.body?.innerText || ""
-    );
-    if (!pageSignals.length) {
-      return [];
-    }
-
     const knownAlert = document.querySelector(KNOWN_ALERT_SELECTOR);
     if (knownAlert && isVisible(knownAlert)) {
       const knownSignals = globalThis.MusicWaveDetector.detectSignals(
@@ -106,6 +118,11 @@
         found.set(signal.kind, signal);
       }
     }
+
+    const pageSignals = globalThis.MusicWaveDetector.detectSignals(
+      document.body?.innerText || ""
+    );
+    if (!pageSignals.length) return [...found.values()];
 
     const elements = document.querySelectorAll("body *");
 
@@ -132,43 +149,99 @@
     return [...found.values()];
   }
 
-  function clearRemoteRetry(kind) {
-    const retry = remoteRetryTimers.get(kind);
-    if (retry) {
-      window.clearTimeout(retry.timer);
-      remoteRetryTimers.delete(kind);
+  function tryAutoConfirmContinue(signals) {
+    const hasContinue = signals.some((signal) => signal.kind === "continue");
+    if (!hasContinue) {
+      autoConfirmAttempted = false;
+      return false;
     }
+    if ((!settings.autoConfirmContinueEnabled && !settings.autoReloadContinueEnabled) ||
+        signals.some((signal) => signal.kind === "mechanical")) return false;
+    try {
+      if (!chrome.runtime?.id) return false;
+    } catch (_error) {
+      return false;
+    }
+    if (autoConfirmAttempted) {
+      return ["clicked", "reload-pending", "reloaded"].includes(lastAutoConfirmOutcome) &&
+        Date.now() - lastAutoConfirmAt < AUTO_CONFIRM_GRACE_MS;
+    }
+
+    const modal = document.querySelector(KNOWN_ALERT_SELECTOR);
+    if (!modal || !isVisible(modal)) return false;
+    const kinds = MusicWaveDetector.detectSignals(modal.innerText || modal.textContent || "")
+      .map((signal) => signal.kind);
+    if (kinds.length !== 1 || kinds[0] !== "continue") return false;
+    if (modal.querySelector('iframe, input, .g-recaptcha, .h-captcha, [class*="captcha"], [id*="captcha"]')) {
+      return false;
+    }
+    if (settings.autoReloadContinueEnabled) {
+      autoConfirmAttempted = true;
+      lastAutoConfirmAt = Date.now();
+      lastAutoConfirmOutcome = "reload-pending";
+      lastAutoContinueAction = "reload";
+      sendRuntimeMessage({ type: "MUSIC_WAVE_AUTO_RELOAD_CONTINUE" }).then((response) => {
+        lastAutoConfirmOutcome = response?.reloaded ? "reloaded" : "failed";
+        scheduleScan();
+      });
+      return true;
+    }
+    const button = modal.querySelector("button.btn-submit");
+    if (!button || !isVisible(button) || button.disabled ||
+        button.getAttribute("aria-disabled") === "true" ||
+        MusicWaveDetector.normalizeText(button.textContent) !== "확인") return false;
+
+    autoConfirmAttempted = true;
+    lastAutoConfirmAt = Date.now();
+    lastAutoContinueAction = "confirm";
+    try {
+      button.click();
+      lastAutoConfirmOutcome = "clicked";
+    } catch (_error) {
+      lastAutoConfirmOutcome = "failed";
+    }
+    chrome.storage.local.set({
+      lastAutoContinue: { timestamp: lastAutoConfirmAt, action: "confirm", outcome: lastAutoConfirmOutcome }
+    }).catch(() => {});
+    // If the site ignores the click, keep the warning and notify after a short grace.
+    return lastAutoConfirmOutcome === "clicked";
   }
 
-  function scheduleRemoteRetry(signal, attempt = 1) {
-    if (
-      !settings.ntfyEnabled ||
-      attempt > REMOTE_RETRY_LIMIT ||
-      remoteRetryTimers.has(signal.kind)
-    ) {
-      return;
+  function collectPlaybackSignal() {
+    const media = document.querySelector("audio#SOUND") ||
+      document.querySelector("audio, video");
+    playbackStatus = playbackMonitor.sample({
+      available: Boolean(media),
+      currentTime: media?.currentTime || 0,
+      paused: media?.paused ?? true,
+      ended: media?.ended ?? false,
+      seeking: media?.seeking ?? false
+    });
+    return settings.playbackAlertEnabled && playbackStatus.stopped
+      ? PLAYBACK_STOPPED_SIGNAL : null;
+  }
+
+  async function deliverSignal(signal) {
+    let delivery = alertDeliveries.get(signal.kind);
+    if (!delivery) {
+      delivery = { desktop: false, remote: false, inFlight: false, attempts: 0, retryAt: 0 };
+      alertDeliveries.set(signal.kind, delivery);
     }
+    const desktop = settings.alertsEnabled && !delivery.desktop;
+    const remote = settings.ntfyEnabled && !delivery.remote;
+    if ((!desktop && !remote) || delivery.inFlight || Date.now() < delivery.retryAt) return;
 
-    const timer = window.setTimeout(async () => {
-      remoteRetryTimers.delete(signal.kind);
-      if (!settings.ntfyEnabled || !activeKinds.has(signal.kind)) {
-        return;
-      }
-
-      try {
-        const response = await sendRuntimeMessage({
-          type: "MUSIC_WAVE_ALERT_RETRY_REMOTE",
-          signal
-        });
-        if (!response?.remote?.delivered) {
-          scheduleRemoteRetry(signal, attempt + 1);
-        }
-      } catch (_error) {
-        scheduleRemoteRetry(signal, attempt + 1);
-      }
-    }, REMOTE_RETRY_MS);
-
-    remoteRetryTimers.set(signal.kind, { timer, attempt });
+    delivery.inFlight = true;
+    delivery.retryAt = Date.now() + Math.min(60000, ALERT_RETRY_MS * 2 ** Math.min(delivery.attempts++, 3));
+    const type = desktop && remote ? "MUSIC_WAVE_ALERT" : desktop
+      ? "MUSIC_WAVE_ALERT_RETRY_DESKTOP" : "MUSIC_WAVE_ALERT_RETRY_REMOTE";
+    try {
+      const response = await sendRuntimeMessage({ type, signal });
+      delivery.desktop ||= Boolean(response?.notified || response?.desktop?.delivered);
+      delivery.remote ||= Boolean(response?.remote?.delivered);
+    } finally {
+      delivery.inFlight = false;
+    }
   }
 
   function playAlertSound(severity) {
@@ -302,29 +375,25 @@
       playAlertSound(signal.severity);
       flashTitle(signal);
     }
-
-    sendRuntimeMessage({ type: "MUSIC_WAVE_ALERT", signal })
-      .then((response) => {
-        if (settings.ntfyEnabled && !response?.remote?.delivered) {
-          scheduleRemoteRetry(signal);
-        }
-      })
-      .catch(() => {
-        if (settings.ntfyEnabled) {
-          scheduleRemoteRetry(signal);
-        }
-      });
   }
 
   function scanPage() {
     scanTimer = null;
-    const signals = collectSignals();
+    const detectedSignals = collectSignals();
+    const confirming = tryAutoConfirmContinue(detectedSignals);
+    const signals = confirming
+      ? detectedSignals.filter((signal) => signal.kind !== "continue") : detectedSignals;
+    const playbackSignal = collectPlaybackSignal();
+    const recovering = ["clicked", "reload-pending", "reloaded"].includes(lastAutoConfirmOutcome) &&
+      Date.now() - lastAutoConfirmAt < AUTO_CONFIRM_GRACE_MS;
+    // Let a successful confirmation resume playback before reporting a generic stop.
+    if (playbackSignal && !detectedSignals.length && !recovering) signals.push(playbackSignal);
     const nextKinds = new Set(signals.map((signal) => signal.kind));
     latestSignals = signals;
 
-    for (const kind of remoteRetryTimers.keys()) {
+    for (const kind of alertDeliveries.keys()) {
       if (!nextKinds.has(kind)) {
-        clearRemoteRetry(kind);
+        alertDeliveries.delete(kind);
       }
     }
 
@@ -332,6 +401,7 @@
       if (!activeKinds.has(signal.kind)) {
         announce(signal);
       }
+      deliverSignal(signal).catch(() => {});
     }
 
     activeKinds = nextKinds;
@@ -381,26 +451,43 @@
           settings[key] = changes[key].newValue;
         }
       }
-      if (!settings.ntfyEnabled) {
-        for (const kind of remoteRetryTimers.keys()) {
-          clearRemoteRetry(kind);
-        }
+      if (changes.autoConfirmContinueEnabled || changes.autoReloadContinueEnabled) autoConfirmAttempted = false;
+      if (changes.alertsEnabled || changes.ntfyEnabled) {
+        for (const delivery of alertDeliveries.values()) delivery.retryAt = 0;
       }
+      scheduleScan();
     });
 
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-      if (message?.type !== "MUSIC_WAVE_GET_STATUS") {
+      if (message?.type === "MUSIC_WAVE_AUTO_RELOAD_FAILED") {
+        lastAutoConfirmOutcome = "failed";
+        scheduleScan();
+        sendResponse({ received: true });
+        return undefined;
+      }
+      if (message?.type === "MUSIC_WAVE_SCAN_NOW") scanPage();
+      if (!["MUSIC_WAVE_GET_STATUS", "MUSIC_WAVE_SCAN_NOW"].includes(message?.type)) {
         return undefined;
       }
 
       sendResponse({
         watching: true,
+        playback: playbackStatus,
+        autoConfirmPending: ["clicked", "reload-pending", "reloaded"].includes(lastAutoConfirmOutcome) &&
+          Date.now() - lastAutoConfirmAt < AUTO_CONFIRM_GRACE_MS,
+        autoContinueAction: lastAutoContinueAction,
         activeSignals: latestSignals.map((signal) => signal.kind)
       });
       return undefined;
     });
 
     scanPage();
+    for (const event of ["play", "playing", "pause", "ended", "waiting", "stalled", "error"]) {
+      document.addEventListener(event, scheduleScan, true);
+    }
+    document.addEventListener("timeupdate", () => {
+      if (collectPlaybackSignal()) scheduleScan();
+    }, true);
     window.setInterval(scheduleScan, FALLBACK_SCAN_MS);
   }
 

@@ -7,6 +7,9 @@ const DEFAULT_SETTINGS = Object.freeze({
   soundEnabled: true,
   titleFlashEnabled: true,
   tabCloseAlertEnabled: true,
+  playbackAlertEnabled: true,
+  autoConfirmContinueEnabled: false,
+  autoReloadContinueEnabled: false,
   ntfyEnabled: false,
   ntfyTopic: ""
 });
@@ -36,6 +39,12 @@ const ALERT_DEFINITIONS = Object.freeze({
     title: "MUSIC WAVE 탭 종료",
     message: "MUSIC WAVE 탭이 닫혔습니다. 다시 열어 감시를 계속하세요."
   }),
+  playbackStopped: Object.freeze({
+    kind: "playbackStopped",
+    severity: "critical",
+    title: "MUSIC WAVE 재생 중단",
+    message: "음악 재생이 15초 이상 멈췄습니다. MUSIC WAVE 탭을 확인하세요."
+  }),
   test: Object.freeze({
     kind: "test",
     severity: "warning",
@@ -43,9 +52,11 @@ const ALERT_DEFINITIONS = Object.freeze({
     message: "Music Wave Alert가 정상적으로 동작하고 있습니다."
   })
 });
-const NOTIFICATION_ICON =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9WlJ4AAAAASUVORK5CYII=";
+const NOTIFICATION_ICON = "icons/notification.png";
 const recentAlerts = new Map();
+const pendingDeliveries = new Map();
+const pendingContinueReloads = new Set();
+const AUTO_CONTINUE_RELOAD_COOLDOWN_MS = 60000;
 let tabPresenceTimer = null;
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -118,6 +129,90 @@ async function reloadContinueTab(id) {
   }
 }
 
+// Runs in the extension's isolated world inside the target page.
+function canAutoReloadContinuePage() {
+  const visible = (element) => {
+    if (!element) return false;
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== "none" && style.visibility !== "hidden" &&
+      Number.parseFloat(style.opacity || "1") !== 0 && rect.width > 0 && rect.height > 0;
+  };
+  const detector = globalThis.MusicWaveDetector;
+  const modal = document.querySelector("#alertButton.melon-modal.d_modal_confirm");
+  if (!detector || !visible(modal)) return false;
+  const signals = detector.detectSignals(modal.innerText || modal.textContent || "");
+  if (signals.length !== 1 || signals[0].kind !== "continue") return false;
+  if (modal.querySelector('iframe, input, .g-recaptcha, .h-captcha, [class*="captcha"], [id*="captcha"]')) {
+    return false;
+  }
+  return ![...document.querySelectorAll('.melon-modal, [role="dialog"], [role="alertdialog"], [role="alert"]')]
+    .some((element) => visible(element) && detector.detectSignals(element.innerText || element.textContent || "")
+      .some((signal) => signal.kind === "mechanical"));
+}
+
+async function autoReloadContinueTab(sender, sendResponse) {
+  const tabId = sender.tab?.id;
+  if (!Number.isInteger(tabId) || sender.frameId !== 0 ||
+      !(sender.url || sender.tab?.url || "").startsWith(MUSIC_WAVE_HOME)) {
+    sendResponse({ reloaded: false, reason: "invalid-sender" });
+    return;
+  }
+  if (pendingContinueReloads.has(tabId)) {
+    sendResponse({ reloaded: false, reason: "in-progress" });
+    return;
+  }
+  pendingContinueReloads.add(tabId);
+  const cooldownKey = `musicWaveContinueReloadAt:${tabId}`;
+  let responded = false;
+  try {
+    const [settings, tab, state] = await Promise.all([
+      chrome.storage.sync.get(DEFAULT_SETTINGS),
+      chrome.tabs.get(tabId),
+      chrome.storage.session.get({ [cooldownKey]: 0 })
+    ]);
+    if (!settings.autoReloadContinueEnabled || !tab.url?.startsWith(MUSIC_WAVE_HOME)) {
+      sendResponse({ reloaded: false, reason: "disabled-or-navigated" });
+      return;
+    }
+    if (state[cooldownKey] > 0 && Date.now() - state[cooldownKey] < AUTO_CONTINUE_RELOAD_COOLDOWN_MS) {
+      sendResponse({ reloaded: false, reason: "cooldown" });
+      return;
+    }
+    const [inspection] = await chrome.scripting.executeScript({
+      target: { tabId }, func: canAutoReloadContinuePage
+    });
+    if (inspection?.result !== true) {
+      sendResponse({ reloaded: false, reason: "not-plain-continue-dialog" });
+      return;
+    }
+    const timestamp = Date.now();
+    await chrome.storage.session.set({ [cooldownKey]: timestamp });
+    await chrome.storage.local.set({
+      lastAutoContinue: { timestamp, action: "reload", outcome: "reload-pending" }
+    });
+    // Reply before navigating so the content script does not lose its acknowledgement.
+    sendResponse({ reloaded: true });
+    responded = true;
+    await chrome.tabs.reload(tabId);
+    await chrome.storage.local.set({
+      lastAutoContinue: { timestamp, action: "reload", outcome: "reloaded" }
+    });
+  } catch (error) {
+    await chrome.storage.local.set({
+      lastAutoContinue: { timestamp: Date.now(), action: "reload", outcome: "failed",
+        reason: String(error?.message || "reload-failed") }
+    }).catch(() => {});
+    if (!responded) sendResponse({ reloaded: false, reason: "reload-failed" });
+    if (responded) {
+      await chrome.tabs.sendMessage(tabId, { type: "MUSIC_WAVE_AUTO_RELOAD_FAILED" }).catch(() => {});
+      await createAlert("continue", tabId).catch(() => {});
+    }
+  } finally {
+    pendingContinueReloads.delete(tabId);
+  }
+}
+
 async function sendNtfyAlert(signal, topic) {
   const provider = MusicWaveNotificationProviders.ntfy;
   if (!provider.isValidTopic(topic)) {
@@ -164,11 +259,38 @@ async function createDesktopAlert(signal, tabId) {
   });
 
   if (Number.isInteger(tabId)) {
-    await chrome.action.setBadgeBackgroundColor({
-      tabId,
-      color: signal.severity === "critical" ? "#B42318" : "#F79009"
-    });
-    await chrome.action.setBadgeText({ tabId, text: "!" });
+    try {
+      await chrome.action.setBadgeBackgroundColor({
+        tabId,
+        color: signal.severity === "critical" ? "#B42318" : "#F79009"
+      });
+      await chrome.action.setBadgeText({ tabId, text: "!" });
+    } catch (_error) {
+      // The alert was delivered even if its tab disappeared before the badge update.
+    }
+  }
+}
+
+async function deliverAlertChannel(key, deliver, { ignoreCooldown = false } = {}) {
+  if (pendingDeliveries.has(key)) return pendingDeliveries.get(key);
+  const previous = recentAlerts.get(key);
+  if (!ignoreCooldown && previous !== undefined && Date.now() - previous < 10000) {
+    return { delivered: true, reason: "already-delivered" };
+  }
+  const pending = (async () => {
+    try {
+      const result = await deliver();
+      if (result.delivered) recentAlerts.set(key, Date.now());
+      return result;
+    } catch (error) {
+      return { delivered: false, reason: String(error?.message || "delivery-failed") };
+    }
+  })();
+  pendingDeliveries.set(key, pending);
+  try {
+    return await pending;
+  } finally {
+    pendingDeliveries.delete(key);
   }
 }
 
@@ -185,42 +307,43 @@ async function createAlert(kind, tabId, options = {}) {
 
   const id = notificationId(signal.kind, tabId);
   const now = Date.now();
-  if (!options.ignoreCooldown && now - (recentAlerts.get(id) || 0) < 10000) {
-    return { notified: false, reason: "cooldown" };
-  }
-  recentAlerts.set(id, now);
-
-  let desktop = { delivered: false };
-  let remote = { delivered: false, reason: "disabled" };
-
-  if (desktopEnabled) {
-    await createDesktopAlert(signal, tabId);
-    desktop = { delivered: true };
-  }
-
-  if (remoteEnabled) {
-    try {
-      remote = await sendNtfyAlert(signal, settings.ntfyTopic);
-    } catch (_error) {
-      remote = { delivered: false, reason: "network-error" };
-    }
-  }
-
   await chrome.storage.local.set({
     lastAlert: {
       kind: signal.kind,
       title: signal.title,
       severity: signal.severity,
       timestamp: now
-    },
-    lastRemoteDelivery: {
-      delivered: remote.delivered,
-      reason: remote.reason || null,
-      timestamp: now
     }
   });
 
-  return { notified: desktop.delivered, remote };
+  // Both channels attempt delivery independently. A PC API error must not stop ntfy.
+  const [desktop, remote] = await Promise.all([
+    desktopEnabled
+      ? deliverAlertChannel(`${id}:desktop`, async () => {
+          await createDesktopAlert(signal, tabId);
+          return { delivered: true };
+        }, options)
+      : { delivered: false, reason: "disabled" },
+    remoteEnabled
+      ? deliverAlertChannel(`${id}:remote`, async () => {
+          try {
+            return await sendNtfyAlert(signal, settings.ntfyTopic);
+          } catch (_error) {
+            return { delivered: false, reason: "network-error" };
+          }
+        }, options)
+      : { delivered: false, reason: "disabled" }
+  ]);
+  const deliveryRecords = {};
+  if (desktopEnabled) deliveryRecords.lastDesktopDelivery = { ...desktop, timestamp: now };
+  if (remoteEnabled) deliveryRecords.lastRemoteDelivery = {
+    delivered: remote.delivered,
+    reason: remote.reason || null,
+    timestamp: now
+  };
+  await chrome.storage.local.set(deliveryRecords);
+
+  return { notified: desktop.delivered, desktop, remote };
 }
 
 async function checkMusicWaveTabPresence({ notify = true } = {}) {
@@ -389,7 +512,7 @@ async function injectWatcherIntoOpenTabs() {
         chrome.scripting
           .executeScript({
             target: { tabId },
-            files: ["detector-core.js", "content.js"]
+            files: ["detector-core.js", "playback-monitor-core.js", "content.js"]
           })
           .catch(() => undefined)
       )
@@ -402,6 +525,25 @@ function scheduleTabPresenceCheck() {
     tabPresenceTimer = null;
     checkMusicWaveTabPresence().catch(() => {});
   }, TAB_CHECK_DELAY_MS);
+}
+
+async function scanOpenMusicWaveTabs() {
+  const tabs = await chrome.tabs.query({ url: MUSIC_WAVE_MATCH });
+  await Promise.all(tabs.filter((tab) => Number.isInteger(tab.id)).map(async (tab) => {
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: "MUSIC_WAVE_SCAN_NOW" });
+    } catch (_error) {
+      // Recover pages whose content script missed installation or a worker restart.
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ["detector-core.js", "playback-monitor-core.js", "content.js"]
+        });
+      } catch (error) {
+        await recordTabMonitorError("watcher-injection-error", error);
+      }
+    }
+  }));
 }
 
 async function recordTabMonitorError(event, error) {
@@ -441,7 +583,7 @@ chrome.windows.onRemoved.addListener(scheduleTabPresenceCheck);
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === TAB_WATCH_ALARM) {
-    checkMusicWaveTabPresence().catch((error) =>
+    checkMusicWaveTabPresence().then(scanOpenMusicWaveTabs).catch((error) =>
       recordTabMonitorError("alarm-error", error).catch(() => {})
     );
   }
@@ -452,6 +594,12 @@ ensureTabWatchAlarm().catch(() => {});
 injectWatcherIntoOpenTabs().catch(() => {});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "MUSIC_WAVE_AUTO_RELOAD_CONTINUE") {
+    autoReloadContinueTab(sender, sendResponse).catch(() =>
+      sendResponse({ reloaded: false, reason: "reload-failed" })
+    );
+    return true;
+  }
   if (message?.type === "MUSIC_WAVE_REGISTER_TAB") {
     registerMusicWaveTabIfMatching(message.tabId)
       .then(sendResponse)
@@ -509,13 +657,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === "MUSIC_WAVE_ALERT_RETRY_REMOTE") {
     createAlert(message.signal?.kind, sender.tab?.id, {
-      remoteOnly: true,
-      ignoreCooldown: true
+      remoteOnly: true
     })
       .then(sendResponse)
       .catch((error) =>
         sendResponse({ remote: { delivered: false, reason: error.message } })
       );
+    return true;
+  }
+
+  if (message?.type === "MUSIC_WAVE_ALERT_RETRY_DESKTOP") {
+    createAlert(message.signal?.kind, sender.tab?.id, { desktopOnly: true })
+      .then(sendResponse)
+      .catch((error) => sendResponse({ notified: false, reason: error.message }));
     return true;
   }
 

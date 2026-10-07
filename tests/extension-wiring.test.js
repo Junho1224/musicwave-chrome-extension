@@ -17,7 +17,8 @@ test("retries remote delivery without repeating the desktop alert", () => {
   const content = readFileSync(join(root, "content.js"), "utf8");
   const background = readFileSync(join(root, "background.js"), "utf8");
   assert.match(content, /MUSIC_WAVE_ALERT_RETRY_REMOTE/);
-  assert.match(content, /REMOTE_RETRY_LIMIT = 3/);
+  assert.match(content, /delivery\.remote/);
+  assert.match(content, /MUSIC_WAVE_ALERT_RETRY_DESKTOP/);
   assert.match(background, /MUSIC_WAVE_ALERT_RETRY_REMOTE/);
   assert.match(background, /remoteOnly: true/);
 });

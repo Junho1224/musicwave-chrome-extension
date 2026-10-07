@@ -5,6 +5,9 @@ const DEFAULT_SETTINGS = Object.freeze({
   soundEnabled: true,
   titleFlashEnabled: true,
   tabCloseAlertEnabled: true,
+  playbackAlertEnabled: true,
+  autoConfirmContinueEnabled: false,
+  autoReloadContinueEnabled: false,
   ntfyEnabled: false,
   ntfyTopic: ""
 });
@@ -15,7 +18,10 @@ const controls = {
   alertsEnabled: document.getElementById("alerts-enabled"),
   soundEnabled: document.getElementById("sound-enabled"),
   titleFlashEnabled: document.getElementById("title-flash-enabled"),
-  tabCloseAlertEnabled: document.getElementById("tab-close-alert-enabled")
+  tabCloseAlertEnabled: document.getElementById("tab-close-alert-enabled"),
+  playbackAlertEnabled: document.getElementById("playback-alert-enabled"),
+  autoConfirmContinueEnabled: document.getElementById("auto-confirm-continue-enabled"),
+  autoReloadContinueEnabled: document.getElementById("auto-reload-continue-enabled")
 };
 const ntfyToggle = document.getElementById("ntfy-enabled");
 const pageStatus = document.getElementById("page-status");
@@ -23,6 +29,8 @@ const tabMonitorStatus = document.getElementById("tab-monitor-status");
 const mobileStatus = document.getElementById("mobile-status");
 const mobileTopic = document.getElementById("mobile-topic");
 const lastAlert = document.getElementById("last-alert");
+const deliveryStatus = document.getElementById("delivery-status");
+const autoContinueStatus = document.getElementById("auto-continue-status");
 const testButton = document.getElementById("test-alert");
 const connectButton = document.getElementById("connect-mobile");
 const testMobileButton = document.getElementById("test-mobile");
@@ -63,9 +71,22 @@ function updateMobileUi(settings) {
 
 async function loadSettings() {
   const settings = await chrome.storage.sync.get(DEFAULT_SETTINGS);
+  if (settings.autoReloadContinueEnabled && settings.autoConfirmContinueEnabled) {
+    settings.autoConfirmContinueEnabled = false;
+    await chrome.storage.sync.set({ autoConfirmContinueEnabled: false });
+  }
   for (const [key, control] of Object.entries(controls)) {
     control.checked = Boolean(settings[key]);
-    control.addEventListener("change", () => chrome.storage.sync.set({ [key]: control.checked }));
+    control.addEventListener("change", () => {
+      const updates = { [key]: control.checked };
+      const otherAction = key === "autoReloadContinueEnabled" ? "autoConfirmContinueEnabled"
+        : key === "autoConfirmContinueEnabled" ? "autoReloadContinueEnabled" : null;
+      if (control.checked && otherAction) {
+        controls[otherAction].checked = false;
+        updates[otherAction] = false;
+      }
+      return chrome.storage.sync.set(updates);
+    });
   }
   updateMobileUi(settings);
 
@@ -103,11 +124,18 @@ async function loadPageStatus() {
       const response = await chrome.tabs.sendMessage(tab.id, { type: "MUSIC_WAVE_GET_STATUS" });
       if (response?.activeSignals?.includes("mechanical")) {
         pageStatus.textContent = "기계 감지 팝업을 감지했습니다.";
+      } else if (response?.autoConfirmPending) {
+        pageStatus.textContent = response.autoContinueAction === "reload"
+          ? "계속 듣기 자동 새로고침 중…" : "계속 듣기 자동 확인 중…";
       } else if (response?.activeSignals?.includes("continue")) {
         pageStatus.textContent = "계속 듣기 팝업을 감지했습니다.";
+      } else if (response?.activeSignals?.includes("playbackStopped")) {
+        pageStatus.textContent = "재생 중단을 감지했습니다.";
       } else {
         pageStatus.textContent = response?.watching
-          ? "현재 탭을 감시하고 있습니다."
+          ? response.playback?.state === "playing"
+            ? "현재 탭 감시 중 · 음악 재생 중"
+            : "현재 탭 감시 중 · 재생 상태 확인 중"
           : "페이지를 새로고침해 주세요.";
       }
     } catch (_error) {
@@ -133,9 +161,25 @@ async function loadPageStatus() {
     : `탭 감시 미등록 · ${alarm}`;
 }
 
+async function loadAutoContinueStatus() {
+  const { lastAutoContinue } = await chrome.storage.local.get("lastAutoContinue");
+  if (!lastAutoContinue) return;
+  const action = lastAutoContinue.action === "reload" ? "자동 새로고침" : "자동 확인";
+  const outcome = ["clicked", "reloaded", "reload-pending"].includes(lastAutoContinue.outcome) ? "시도" : "실패";
+  autoContinueStatus.textContent = `마지막 ${action} ${outcome} · ${formatTimestamp(lastAutoContinue.timestamp)}`;
+}
+
 async function loadLastAlert() {
-  const { lastAlert: record } = await chrome.storage.local.get("lastAlert");
+  const { lastAlert: record, lastDesktopDelivery: desktop, lastRemoteDelivery: remote } =
+    await chrome.storage.local.get(["lastAlert", "lastDesktopDelivery", "lastRemoteDelivery"]);
   if (record) lastAlert.textContent = `${record.title} · ${formatTimestamp(record.timestamp)}`;
+  const deliveries = [];
+  for (const [name, delivery] of [["PC", desktop], ["휴대폰", remote]]) {
+    if (!delivery || delivery.timestamp !== record?.timestamp) continue;
+    deliveries.push(delivery.delivered ? `${name} 전송 완료` : `${name} 전송 실패 · ${delivery.reason}`);
+  }
+  deliveryStatus.hidden = deliveries.length === 0;
+  deliveryStatus.textContent = deliveries.join(" / ");
 }
 
 connectButton.addEventListener("click", async () => {
@@ -184,7 +228,9 @@ testButton.addEventListener("click", async () => {
   testButton.textContent = "알림 전송 중…";
   try {
     const response = await chrome.runtime.sendMessage({ type: "MUSIC_WAVE_TEST" });
-    testButton.textContent = response?.notified ? "알림을 보냈습니다" : "PC 알림이 꺼져 있습니다";
+    testButton.textContent = response?.notified ? "알림을 보냈습니다"
+      : response?.desktop?.reason ? `PC 알림 실패 · ${response.desktop.reason}`
+      : "PC 알림이 꺼져 있습니다";
   } catch (_error) {
     testButton.textContent = "알림 전송에 실패했습니다";
   } finally {
@@ -195,6 +241,6 @@ testButton.addEventListener("click", async () => {
   }
 });
 
-Promise.all([loadSettings(), loadPageStatus(), loadLastAlert()]).catch(() => {
+Promise.all([loadSettings(), loadPageStatus(), loadLastAlert(), loadAutoContinueStatus()]).catch(() => {
   pageStatus.textContent = "상태를 불러오지 못했습니다.";
 });
