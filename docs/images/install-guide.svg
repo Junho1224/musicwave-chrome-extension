@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="660" viewBox="0 0 1120 660" role="img" aria-labelledby="title description">
+  <title id="title">Music Wave Alert를 Chrome에 설치할 때 찾을 네 가지</title>
+  <desc id="description">개발자 모드를 켜고, 압축해제된 확장 프로그램을 로드한 뒤, manifest.json이 있는 폴더를 선택합니다. 마지막으로 확장 프로그램 메뉴에서 Music Wave Alert를 고정합니다. 실제 화면을 단순화한 안내 그림입니다.</desc>
+  <style>
+    text { font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif; fill: #18362a; }
+    .heading { font-size: 25px; font-weight: 700; }
+    .subtitle { font-size: 16px; fill: #52665c; }
+    .step { font-size: 20px; font-weight: 700; }
+    .body { font-size: 16px; }
+    .hint { font-size: 15px; fill: #52665c; }
+    .number { font-size: 19px; font-weight: 700; fill: #ffffff; text-anchor: middle; }
+  </style>
+  <rect width="1120" height="660" rx="20" fill="#f2f7f3" />
+  <text x="24" y="45" class="heading">Chrome 설치 화면 안내</text>
+  <text x="24" y="77" class="subtitle">아래 네 가지를 차례로 찾으세요. 실제 Chrome 화면은 버전에 따라 다를 수 있습니다.</text>
+
+  <rect x="24" y="104" width="520" height="240" rx="14" fill="#ffffff" stroke="#d4e2d7" />
+  <circle cx="56" cy="138" r="18" fill="#087f45" />
+  <text x="56" y="145" class="number">1</text>
+  <text x="86" y="145" class="step">개발자 모드 켜기</text>
+  <text x="44" y="184" class="hint">Chrome 주소창에 아래 주소를 입력하세요.</text>
+  <rect x="44" y="198" width="480" height="42" rx="8" fill="#f2f5f3" />
+  <text x="60" y="225" class="body">chrome://extensions</text>
+  <text x="44" y="285" class="body">개발자 모드</text>
+  <rect x="460" y="263" width="60" height="30" rx="15" fill="#087f45" />
+  <circle cx="505" cy="278" r="11" fill="#ffffff" />
+  <text x="44" y="324" class="hint">관리 화면 오른쪽 위의 스위치를 켜세요.</text>
+
+  <rect x="576" y="104" width="520" height="240" rx="14" fill="#ffffff" stroke="#d4e2d7" />
+  <circle cx="608" cy="138" r="18" fill="#087f45" />
+  <text x="608" y="145" class="number">2</text>
+  <text x="638" y="145" class="step">압축해제된 확장 프로그램 로드</text>
+  <text x="596" y="184" class="hint">관리 화면에서 아래 이름의 버튼을 찾으세요.</text>
+  <rect x="596" y="208" width="480" height="54" rx="8" fill="#ecf8ef" stroke="#087f45" />
+  <text x="836" y="241" font-size="18" text-anchor="middle">압축해제된 확장 프로그램을 로드합니다</text>
+  <text x="596" y="305" class="hint">다운로드한 ZIP을 푼 뒤 이 버튼을 누르세요.</text>
+
+  <rect x="24" y="368" width="520" height="264" rx="14" fill="#ffffff" stroke="#d4e2d7" />
+  <circle cx="56" cy="402" r="18" fill="#087f45" />
+  <text x="56" y="409" class="number">3</text>
+  <text x="86" y="409" class="step">manifest.json이 있는 폴더 선택</text>
+  <text x="44" y="446" class="hint">선택할 폴더 예시: MusicWaveAlert</text>
+  <rect x="44" y="460" width="480" height="124" rx="8" fill="#f2f5f3" />
+  <text x="60" y="490" class="body">MusicWaveAlert/</text>
+  <rect x="54" y="503" width="460" height="31" rx="5" fill="#d9f1e1" />
+  <text x="76" y="524" class="body">manifest.json ← 이 파일이 보이는 폴더</text>
+  <text x="76" y="557" class="body">background.js · content.js · icons/</text>
+  <text x="44" y="610" class="hint">manifest.json을 담고 있는 폴더를 선택하세요.</text>
+
+  <rect x="576" y="368" width="520" height="264" rx="14" fill="#ffffff" stroke="#d4e2d7" />
+  <circle cx="608" cy="402" r="18" fill="#087f45" />
+  <text x="608" y="409" class="number">4</text>
+  <text x="638" y="409" class="step">아이콘 고정 후 설정 열기</text>
+  <text x="596" y="446" class="hint">주소창 옆 퍼즐 모양의 확장 프로그램 메뉴</text>
+  <rect x="596" y="460" width="480" height="124" rx="8" fill="#f2f5f3" />
+  <text x="616" y="490" class="body">확장 프로그램</text>
+  <text x="616" y="539" class="body">Music Wave Alert</text>
+  <rect x="962" y="516" width="94" height="34" rx="7" fill="#ecf8ef" stroke="#087f45" />
+  <text x="1009" y="539" class="body" text-anchor="middle">고정</text>
+  <text x="596" y="610" class="hint">이름 오른쪽의 핀을 누르면 아이콘이 고정됩니다.</text>
+</svg>
